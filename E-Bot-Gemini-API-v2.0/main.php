@@ -28,7 +28,9 @@ include "php/php_utils_revised.php";
 $path_to_config_ini = 'ebot_config.ini';
 
 
-$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent";
+// New API keys: use gemini-3.5-flash-lite (see ebot_config.ini [api] MODEL to override)
+$gemini_model = 'gemini-3.5-flash-lite';
+$url = "https://generativelanguage.googleapis.com/v1beta/models/{$gemini_model}:generateContent";
 
 
 

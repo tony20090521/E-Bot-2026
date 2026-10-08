@@ -147,37 +147,55 @@ function make_api_call($system_message, $message_history, $max_retries = 3) {
         "Content-Type: application/json"
     ];
 
+    $modelFromConfig = trim($config['api']['MODEL'] ?? '');
+    $modelsToTry = array_values(array_unique(array_filter([
+        $modelFromConfig,
+        'gemini-3.5-flash-lite',
+    ])));
+    $apiBase = 'https://generativelanguage.googleapis.com/v1beta/models/';
+
     $attempt = 0;
     while ($attempt < $max_retries) {
         $attempt++;
 
-        $curl = curl_init($url);
-        curl_setopt($curl, CURLOPT_POST, 1);
-        curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($data));
-        curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+        foreach ($modelsToTry as $model) {
+            $requestUrl = $apiBase . $model . ':generateContent';
 
-        $result = curl_exec($curl);
-        $httpStatusCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-        $curlError = curl_errno($curl) ? curl_error($curl) : null;
+            $curl = curl_init($requestUrl);
+            curl_setopt($curl, CURLOPT_POST, 1);
+            curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($data));
+            curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+            curl_setopt($curl, CURLOPT_TIMEOUT, 45);
 
-        curl_close($curl);
+            $result = curl_exec($curl);
+            $httpStatusCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+            $curlError = curl_errno($curl) ? curl_error($curl) : null;
 
-        if ($curlError) {
-            error_log($timestamp . " Attempt $attempt - cURL error: $curlError\n", 3, $file_path);
-        } elseif ($httpStatusCode >= 400) {
-            error_log($timestamp . " Attempt $attempt - HTTP error: $httpStatusCode - Response: $result\n", 3, $file_path);
-        } else {
+            curl_close($curl);
+
+            if ($curlError) {
+                error_log($timestamp . " Attempt $attempt ($model) - cURL error: $curlError\n", 3, $file_path);
+                continue;
+            }
+
+            if ($httpStatusCode >= 400) {
+                error_log($timestamp . " Attempt $attempt ($model) - HTTP error: $httpStatusCode - Response: $result\n", 3, $file_path);
+                // Wrong or retired model — try next in list
+                if ($httpStatusCode === 404) {
+                    continue;
+                }
+                break;
+            }
+
             $decodedResult = json_decode($result, true);
             if (json_last_error() === JSON_ERROR_NONE) {
                 return $decodedResult;
-            } else {
-                error_log($timestamp . " Attempt $attempt - JSON decode error: " . json_last_error_msg() . "\n", 3, $file_path);
             }
+            error_log($timestamp . " Attempt $attempt ($model) - JSON decode error: " . json_last_error_msg() . "\n", 3, $file_path);
         }
 
-        // Optional: sleep between retries to avoid hitting rate limits
-        sleep(1);
+        sleep(2);
     }
 
     return 'api_error';
